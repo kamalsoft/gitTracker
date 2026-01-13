@@ -6,23 +6,141 @@
     <title>Repository Traffic Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; background: #f6f8fa; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
-        h1 { text-align: center; color: #24292e; }
+        :root {
+            --bg-color: #f6f8fa;
+            --card-bg: #ffffff;
+            --text-color: #24292e;
+            --text-secondary: #586069;
+            --border-color: #e1e4e8;
+            --chart-grid: #e1e4e8;
+        }
+        [data-theme="dark"] {
+            --bg-color: #0d1117;
+            --card-bg: #161b22;
+            --text-color: #c9d1d9;
+            --text-secondary: #8b949e;
+            --border-color: #30363d;
+            --chart-grid: #30363d;
+        }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; background: var(--bg-color); color: var(--text-color); transition: background 0.3s, color 0.3s; }
+        .container { max-width: 800px; margin: 0 auto; background: var(--card-bg); padding: 20px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); transition: background 0.3s; }
+        h1 { text-align: center; color: var(--text-color); }
+        p { color: var(--text-secondary); }
         canvas { margin-bottom: 30px; }
+        
+        /* Summary Cards */
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .summary-card { background: var(--bg-color); padding: 15px; border-radius: 6px; border: 1px solid var(--border-color); text-align: center; }
+        .stat-value { font-size: 24px; font-weight: bold; display: block; }
+        .stat-label { font-size: 14px; color: var(--text-secondary); }
+        .stat-change { font-size: 12px; margin-top: 5px; display: block; }
+        .positive { color: #2ea44f; }
+        .negative { color: #cb2431; }
+        .neutral { color: var(--text-secondary); }
+
+        /* Theme Toggle */
+        .theme-btn { position: absolute; top: 20px; right: 20px; background: var(--card-bg); border: 1px solid var(--border-color); color: var(--text-color); padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+        
+        /* Controls */
+        .controls { margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .btn { padding: 8px 12px; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-color); border-radius: 6px; cursor: pointer; transition: background 0.2s; }
+        .btn:hover { background: var(--border-color); }
+        input[type="date"] { padding: 7px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--card-bg); color: var(--text-color); }
+        
+        /* Spinner */
+        .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 36px; height: 36px; border-radius: 50%; border-left-color: #0366d6; animation: spin 1s ease infinite; margin: 20px auto; display: none; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Heatmap */
+        .heatmap-container { display: flex; gap: 5px; margin-bottom: 30px; justify-content: center; flex-wrap: wrap; }
+        .heatmap-day { flex: 1; min-width: 80px; text-align: center; padding: 10px; border-radius: 4px; background: var(--card-bg); border: 1px solid var(--border-color); transition: background 0.3s; }
+        .heatmap-label { font-size: 12px; color: var(--text-secondary); display: block; margin-bottom: 5px; }
+        .heatmap-value { font-weight: bold; font-size: 16px; }
     </style>
 </head>
 <body>
+    <button class="theme-btn" onclick="toggleTheme()">🌗 Theme</button>
+
+    <!-- Simple Password Protection Overlay -->
+    <div id="loginOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #f6f8fa; z-index: 1000; display: flex; justify-content: center; align-items: center; flex-direction: column;">
+        <div style="background: white; padding: 30px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); text-align: center;">
+            <h2 style="margin-top: 0;">Dashboard Login</h2>
+            <input type="password" id="passwordInput" placeholder="Enter Password" style="padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; width: 200px; display: block;">
+            <button onclick="checkPassword()" style="padding: 10px 20px; background: #2ea44f; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%;">Login</button>
+            <p id="errorMsg" style="color: red; display: none; margin-top: 10px; font-size: 0.9em;">Incorrect password</p>
+        </div>
+    </div>
+
     <div class="container">
         <h1>GitHub Traffic Stats</h1>
+        <p id="lastUpdated" style="text-align: center; font-size: 0.9em; margin-bottom: 20px;">Loading...</p>
+        <div id="loadingSpinner" class="spinner"></div>
+        
+        <div class="controls">
+            <button class="btn" onclick="setFilter(0)">Today</button>
+            <button class="btn" onclick="setFilter(30)">Last 30 Days</button>
+            <input type="date" id="startDate" onchange="applyDateFilter()">
+            <span style="color: var(--text-secondary)">to</span>
+            <input type="date" id="endDate" onchange="applyDateFilter()">
+            <button class="btn" onclick="downloadCSV()">⬇ Export CSV</button>
+            <button class="btn" onclick="resetFilter()">Reset Filter</button>
+            <button class="btn" onclick="toggleChartType()">📊 Toggle Chart Type</button>
+            <button class="btn" onclick="triggerRefresh()">🔄 Refresh Data</button>
+        </div>
+
+        <div id="summaryGrid" class="summary-grid"></div>
+        <div id="heatmap" class="heatmap-container"></div>
+        <div id="topDaysTable" style="margin-bottom: 30px; overflow-x: auto;"></div>
+        <canvas id="comparisonChart"></canvas>
         <canvas id="viewsChart"></canvas>
         <canvas id="clonesChart"></canvas>
+        <canvas id="starsChart"></canvas>
+        <canvas id="forksChart"></canvas>
+        <div style="max-width: 500px; margin: 0 auto;">
+            <canvas id="referrersChart"></canvas>
+        </div>
     </div>
 
     <script>
+        // Theme Logic
+        function toggleTheme() {
+            const isDark = document.body.getAttribute('data-theme') === 'dark';
+            document.body.setAttribute('data-theme', isDark ? 'light' : 'dark');
+            
+            // Update Chart.js defaults for visibility
+            const textColor = isDark ? '#24292e' : '#c9d1d9'; 
+            const gridColor = isDark ? '#e1e4e8' : '#30363d';
+            
+            Chart.defaults.color = textColor;
+            Chart.defaults.borderColor = gridColor;
+            
+            // Re-render charts if data exists (optional, but good for immediate feedback)
+            if (window.loadedData) applyDateFilter(); 
+        }
+
+        let currentChartType = 'line';
+
+        function toggleChartType() {
+            currentChartType = currentChartType === 'line' ? 'bar' : 'line';
+            applyDateFilter();
+        }
+
+        // Simple Client-Side Password Check
+        function checkPassword() {
+            const pass = document.getElementById('passwordInput').value;
+            // WARNING: This is not secure. The password is visible in the source code.
+            if (pass === 'admin123') { 
+                document.getElementById('loginOverlay').style.display = 'none';
+                document.getElementById('loadingSpinner').style.display = 'block';
+                loadDashboard(); // Load data only after login
+            } else {
+                document.getElementById('errorMsg').style.display = 'block';
+            }
+        }
+
         async function loadData() {
             // Fetch the JSON file directly from the repo
-            const response = await fetch('traffic_data.json');
+            const response = await fetch('traffic_data.json?v=' + new Date().getTime());
             const data = await response.json();
             return data;
         }
@@ -30,26 +148,83 @@
         function createChart(ctx, label, data, color) {
             const dates = data.map(d => new Date(d.timestamp).toLocaleDateString());
             const counts = data.map(d => d.count);
-            const uniques = data.map(d => d.uniques);
+            
+            // Only show uniques if the data supports it (views/clones)
+            const hasUniques = data.length > 0 && 'uniques' in data[0];
+            const datasets = [{
+                label: 'Total ' + label,
+                data: counts,
+                borderColor: color,
+                backgroundColor: color,
+                tension: 0.1,
+                fill: false
+            }];
+
+            if (hasUniques) {
+                datasets.push({
+                    label: 'Unique ' + label,
+                    data: data.map(d => d.uniques),
+                    borderColor: document.body.getAttribute('data-theme') === 'dark' ? '#8b949e' : '#666',
+                    borderDash: [5, 5],
+                    tension: 0.1,
+                    fill: false
+                });
+            }
 
             new Chart(ctx, {
-                type: 'line',
+                type: currentChartType,
                 data: {
                     labels: dates,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        tooltip: { mode: 'index', intersect: false },
+                        title: { display: true, text: 'Traffic Over Time' }
+                    }
+                }
+            });
+        }
+
+        function createComparisonChart(ctx, viewsData, clonesData) {
+            // Collect all unique timestamps from both datasets
+            const dateSet = new Set();
+            viewsData.forEach(d => dateSet.add(d.timestamp));
+            clonesData.forEach(d => dateSet.add(d.timestamp));
+            const sortedDates = Array.from(dateSet).sort();
+            
+            const labels = sortedDates.map(d => new Date(d).toLocaleDateString());
+            
+            // Map dates to counts, defaulting to 0 if missing
+            const viewCounts = sortedDates.map(d => {
+                const entry = viewsData.find(v => v.timestamp === d);
+                return entry ? entry.count : 0;
+            });
+            const cloneCounts = sortedDates.map(d => {
+                const entry = clonesData.find(c => c.timestamp === d);
+                return entry ? entry.count : 0;
+            });
+
+            new Chart(ctx, {
+                type: currentChartType,
+                data: {
+                    labels: labels,
                     datasets: [
                         {
-                            label: 'Total ' + label,
-                            data: counts,
-                            borderColor: color,
-                            backgroundColor: color,
+                            label: 'Total Views',
+                            data: viewCounts,
+                            borderColor: '#28a745',
+                            backgroundColor: '#28a745',
                             tension: 0.1,
                             fill: false
                         },
                         {
-                            label: 'Unique ' + label,
-                            data: uniques,
-                            borderColor: '#666',
-                            borderDash: [5, 5],
+                            label: 'Total Clones',
+                            data: cloneCounts,
+                            borderColor: '#0366d6',
+                            backgroundColor: '#0366d6',
                             tension: 0.1,
                             fill: false
                         }
@@ -58,17 +233,287 @@
                 options: {
                     responsive: true,
                     interaction: { mode: 'index', intersect: false },
+                    plugins: { 
+                        title: { display: true, text: 'Views vs Clones' },
+                        tooltip: { mode: 'index', intersect: false }
+                    }
                 }
             });
         }
 
-        loadData().then(data => {
+        function calculateGrowth(data) {
+            if (!data || data.length < 2) return { total: 0, percent: 0, valid: false };
+            
+            // Get last 7 days vs previous 7 days
+            // Note: Data is sorted by timestamp.
+            const last7 = data.slice(-7);
+            const prev7 = data.slice(-14, -7);
+            
+            const sum = arr => arr.reduce((a, b) => a + b.count, 0);
+            const currentTotal = sum(last7);
+            const prevTotal = sum(prev7);
+            
+            let percent = 0;
+            if (prevTotal > 0) {
+                percent = ((currentTotal - prevTotal) / prevTotal) * 100;
+            } else if (currentTotal > 0) {
+                percent = 100; // 0 to something is 100% growth effectively
+            }
+            
+            return { total: currentTotal, percent: percent.toFixed(1), valid: prev7.length > 0 };
+        }
+
+        function addSummaryCard(label, stats) {
+            const div = document.createElement('div');
+            div.className = 'summary-card';
+            const colorClass = stats.percent > 0 ? 'positive' : (stats.percent < 0 ? 'negative' : 'neutral');
+            const arrow = stats.percent > 0 ? '↑' : (stats.percent < 0 ? '↓' : '-');
+            
+            div.innerHTML = `
+                <span class="stat-label">${label} (7d)</span>
+                <span class="stat-value">${stats.total}</span>
+                <span class="stat-change ${colorClass}">${stats.valid ? `${arrow} ${Math.abs(stats.percent)}% vs last week` : 'No prev data'}</span>
+            `;
+            document.getElementById('summaryGrid').appendChild(div);
+        }
+
+        function renderHeatmap(data) {
+            const views = data.views || [];
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const totals = [0, 0, 0, 0, 0, 0, 0];
+
+            views.forEach(v => {
+                const dayIndex = new Date(v.timestamp).getDay();
+                totals[dayIndex] += v.count;
+            });
+
+            const max = Math.max(...totals) || 1;
+            const container = document.getElementById('heatmap');
+            container.innerHTML = '';
+
+            totals.forEach((count, index) => {
+                const intensity = (count / max);
+                // Green intensity based on traffic
+                const bg = `rgba(46, 164, 79, ${0.1 + (intensity * 0.9)})`;
+                const div = document.createElement('div');
+                div.className = 'heatmap-day';
+                div.style.background = bg;
+                div.style.color = intensity > 0.5 ? '#fff' : 'var(--text-color)';
+                div.innerHTML = `<span class="heatmap-label" style="color: inherit">${days[index]}</span><span class="heatmap-value">${count}</span>`;
+                container.appendChild(div);
+            });
+        }
+
+        function renderTopDaysTable(data) {
+            const views = data.views || [];
+            // Sort by count descending
+            const sorted = [...views].sort((a, b) => b.count - a.count).slice(0, 5);
+            
+            let html = '<h3 style="color: var(--text-color);">Top 5 Days (by Views)</h3><table style="width:100%; border-collapse: collapse; margin-bottom: 20px; color: var(--text-color);">';
+            html += '<tr style="background: var(--border-color); text-align: left;">';
+            html += '<th style="padding: 8px;">Date</th><th style="padding: 8px;">Views</th><th style="padding: 8px;">Unique Views</th></tr>';
+            
+            sorted.forEach(day => {
+                html += `<tr style="border-bottom: 1px solid var(--border-color);">
+                    <td style="padding: 8px;">${new Date(day.timestamp).toLocaleDateString()}</td>
+                    <td style="padding: 8px;">${day.count}</td>
+                    <td style="padding: 8px;">${day.uniques}</td>
+                </tr>`;
+            });
+            html += '</table>';
+            document.getElementById('topDaysTable').innerHTML = html;
+        }
+
+        function downloadCSV() {
+            if (!window.loadedData) return;
+            const data = window.loadedData;
+            
+            // Collect all unique timestamps
+            const timestamps = new Set();
+            ['views', 'clones', 'stars', 'forks'].forEach(key => {
+                if (data[key]) data[key].forEach(d => timestamps.add(d.timestamp));
+            });
+            const sortedDates = Array.from(timestamps).sort();
+            
+            let csvContent = "Date,Views,Unique Views,Clones,Unique Clones,Stars,Forks\n";
+            
+            sortedDates.forEach(date => {
+                const getMetric = (key) => (data[key] || []).find(d => d.timestamp === date);
+                const v = getMetric('views');
+                const c = getMetric('clones');
+                const s = getMetric('stars');
+                const f = getMetric('forks');
+                
+                const row = [
+                    date.split('T')[0],
+                    v ? v.count : 0,
+                    v ? v.uniques : 0,
+                    c ? c.count : 0,
+                    c ? c.uniques : 0,
+                    s ? s.count : 0,
+                    f ? f.count : 0
+                ];
+                csvContent += row.join(",") + "\n";
+            });
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "traffic_data.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function setFilter(days) {
+            const end = new Date();
+            const start = new Date();
+            start.setDate(end.getDate() - days);
+            
+            const formatDate = (d) => d.toISOString().split('T')[0];
+            
+            document.getElementById('endDate').value = formatDate(end);
+            document.getElementById('startDate').value = formatDate(start);
+            applyDateFilter();
+        }
+
+        function resetFilter() {
+            document.getElementById('startDate').value = '';
+            document.getElementById('endDate').value = '';
+            applyDateFilter();
+        }
+
+        async function triggerRefresh() {
+            const pat = prompt("Please enter a GitHub Personal Access Token (PAT) with 'workflow' scope to trigger the update:");
+            if (!pat) return;
+
+            // Try to deduce repo from URL, otherwise ask
+            let repo = "";
+            if (window.location.hostname.endsWith('github.io')) {
+                const parts = window.location.pathname.split('/').filter(p => p);
+                if (parts.length > 0) {
+                    repo = `${window.location.hostname.split('.')[0]}/${parts[0]}`;
+                }
+            }
+            
+            if (!repo) {
+                repo = prompt("Could not auto-detect repository. Please enter 'username/repo':");
+            }
+
+            if (!repo) return;
+
+            try {
+                const response = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/traffic_logger.yml/dispatches`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `token ${pat}`,
+                        'Accept': 'application/vnd.github.v3+json'
+                    },
+                    body: JSON.stringify({ ref: 'main' })
+                });
+
+                if (response.ok) {
+                    alert("Workflow triggered successfully! The data should update in a few minutes.");
+                } else {
+                    const err = await response.json();
+                    alert("Error triggering workflow: " + (err.message || response.statusText));
+                }
+            } catch (e) {
+                alert("Network error: " + e.message);
+            }
+        }
+
+        function loadDashboard() {
+            loadData().then(data => {
+                window.loadedData = data; // Store global data
+                applyDateFilter(); // Initial render
+            }).catch(err => {
+                console.error("Error loading data:", err);
+                document.querySelector('.container').innerHTML += "<p style='text-align:center; color:red'>Could not load traffic_data.json. Has the Action run yet?</p>";
+            }).finally(() => {
+                document.getElementById('loadingSpinner').style.display = 'none';
+            });
+        }
+
+        function applyDateFilter() {
+            if (!window.loadedData) return;
+            
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            const filterByDate = (entries) => {
+                if (!entries) return [];
+                return entries.filter(entry => {
+                    const date = entry.timestamp.split('T')[0];
+                    return (!startDate || date >= startDate) && (!endDate || date <= endDate);
+                });
+            };
+            
+            const filteredData = {
+                updated_at: window.loadedData.updated_at,
+                views: filterByDate(window.loadedData.views),
+                clones: filterByDate(window.loadedData.clones),
+                stars: filterByDate(window.loadedData.stars),
+                forks: filterByDate(window.loadedData.forks),
+                referrers: filterByDate(window.loadedData.referrers)
+            };
+            
+            renderDashboard(filteredData);
+        }
+
+        function renderDashboard(data) {
+            document.getElementById('lastUpdated').innerText = 'Last Updated: ' + (data.updated_at || 'N/A');
+            
+            // Clear previous charts/summary if re-rendering
+            document.getElementById('summaryGrid').innerHTML = '';
+            ['comparisonChart', 'viewsChart', 'clonesChart', 'starsChart', 'forksChart', 'referrersChart'].forEach(id => {
+                const oldCanvas = document.getElementById(id);
+                if (oldCanvas) {
+                    const newCanvas = oldCanvas.cloneNode(true);
+                    oldCanvas.parentNode.replaceChild(newCanvas, oldCanvas);
+                }
+            });
+
+            // Add Summary Cards
+            addSummaryCard('Views', calculateGrowth(data.views));
+            addSummaryCard('Clones', calculateGrowth(data.clones));
+            renderHeatmap(data);
+            renderTopDaysTable(data);
+
+            createComparisonChart(document.getElementById('comparisonChart'), data.views, data.clones);
             createChart(document.getElementById('viewsChart'), 'Views', data.views, '#28a745');
             createChart(document.getElementById('clonesChart'), 'Clones', data.clones, '#0366d6');
-        }).catch(err => {
-            console.error("Error loading data:", err);
-            document.body.innerHTML += "<p style='text-align:center; color:red'>Could not load traffic_data.json. Has the Action run yet?</p>";
-        });
+            createChart(document.getElementById('starsChart'), 'Stars', data.stars || [], '#e3b341');
+            createChart(document.getElementById('forksChart'), 'Forks', data.forks || [], '#6f42c1');
+
+            // Render Referrers
+            if (data.referrers && data.referrers.length > 0) {
+                // Get the latest snapshot
+                const latest = data.referrers[data.referrers.length - 1].data;
+                const labels = latest.map(r => r.referrer);
+                const values = latest.map(r => r.count);
+                const colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#E7E9ED', '#76A346'];
+
+                new Chart(document.getElementById('referrersChart'), {
+                    type: 'pie',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: values,
+                            backgroundColor: colors
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            title: { display: true, text: 'Top Referrers (Latest)' }
+                        }
+                    }
+                });
+            }
+        }
     </script>
 </body>
 </html>
