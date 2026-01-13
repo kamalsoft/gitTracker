@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Repository Traffic Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 20px; background: #f6f8fa; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+        h1 { text-align: center; color: #24292e; }
+        canvas { margin-bottom: 30px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>GitHub Traffic Stats</h1>
+        <canvas id="viewsChart"></canvas>
+        <canvas id="clonesChart"></canvas>
+    </div>
+
+    <script>
+        async function loadData() {
+            // Fetch the JSON file directly from the repo
+            const response = await fetch('traffic_data.json');
+            const data = await response.json();
+            return data;
+        }
+
+        function createChart(ctx, label, data, color) {
+            const dates = data.map(d => new Date(d.timestamp).toLocaleDateString());
+            const counts = data.map(d => d.count);
+            const uniques = data.map(d => d.uniques);
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dates,
+                    datasets: [
+                        {
+                            label: 'Total ' + label,
+                            data: counts,
+                            borderColor: color,
+                            backgroundColor: color,
+                            tension: 0.1,
+                            fill: false
+                        },
+                        {
+                            label: 'Unique ' + label,
+                            data: uniques,
+                            borderColor: '#666',
+                            borderDash: [5, 5],
+                            tension: 0.1,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    interaction: { mode: 'index', intersect: false },
+                }
+            });
+        }
+
+        loadData().then(data => {
+            createChart(document.getElementById('viewsChart'), 'Views', data.views, '#28a745');
+            createChart(document.getElementById('clonesChart'), 'Clones', data.clones, '#0366d6');
+        }).catch(err => {
+            console.error("Error loading data:", err);
+            document.body.innerHTML += "<p style='text-align:center; color:red'>Could not load traffic_data.json. Has the Action run yet?</p>";
+        });
+    </script>
+</body>
+</html>
